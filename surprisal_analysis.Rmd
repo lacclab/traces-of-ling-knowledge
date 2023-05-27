@@ -27,7 +27,7 @@ THRESH_FREQ = 25
 THRESH_WL = 14
 
 # GAM
-BOOTSTRAP_TIMES = 1 # number of times to repeat bootrstrapping for GAM fits 
+BOOTSTRAP_TIMES = 50 # number of times to repeat bootrstrapping for GAM fits 
 K = 20 # GAM parameter
 STEP = 0.1 #interval for prediction from GAM models
 
@@ -187,7 +187,7 @@ report_ia_thresh <- report_ia_thresh %>% group_by(lm) %>%
                                       WORD_LENGTH <= THRESH_WL)%>% ungroup()
 ```
 
-Analysis 2: GAMs for L1 and L2
+Analysis 1: GAMs for L1 and L2
 ```{r}
 pred_range <- list(FREQUENCY = c(round(min(report_ia$FREQUENCY)), THRESH_FREQ), 
                    SURPRISAL = c(0, THRESH_SURP),
@@ -502,11 +502,12 @@ p1 <- plot_grid(plots[[1]], density_plots[[1]], ncol = 1, align = "v", axis = "l
 p1
 
 if (BY_L1 == TRUE){
-ggsave(file=paste("surp_analysis_figures/","SURP_GPT2", "-",as.symbol(NORM_TIMES),"_", as.symbol(DATA_SUBSET),"_byL1",".pdf", sep=""), height=24,width=28, p1)
+ggsave(file=paste("figures/","SURP_GPT2", "-",as.symbol(NORM_TIMES),"_", as.symbol(DATA_SUBSET),"_byL1",".pdf", sep=""), height=24,width=28, p1)
 } else {
-  ggsave(file=paste("surp_analysis_figures/","SURP_GPT2", "-",as.symbol(NORM_TIMES),"_", as.symbol(DATA_SUBSET),".pdf", sep=""), height=24,width=28, p1)
+  ggsave(file=paste("figures/","SURP_GPT2", "-",as.symbol(NORM_TIMES),"_", as.symbol(DATA_SUBSET),".pdf", sep=""), height=24,width=28, p1)
 }
 ```
+
 
 Analysis 3: Effect Size (Mean slowdown) as a function of English proficiency
 ```{r, fig.width=12,fig.height=10}
@@ -588,11 +589,48 @@ l1_means <- l1_slowdowns %>% group_by(lm, fix_measure,word_property) %>% summari
 coefs_sig <- subj_slowdowns %>% group_by(lm, fix_measure, word_property) %>% do(coef_sig(.))
 
 plots <- plot_slowdowns(l2_slowdowns, l1_means, LM_DEFAULT, coefs_sig)
-ggsave(file=paste("surp_analysis_figures/by-MPT-", LM_DEFAULT, "-", as.symbol(NORM_TIMES),"_", as.symbol(DATA_SUBSET),".pdf", sep = ""), height = 20, width = 25)
+ggsave(file=paste("figures/by-MPT-", LM_DEFAULT, "-", as.symbol(NORM_TIMES),"_", as.symbol(DATA_SUBSET),".pdf", sep = ""), height = 20, width = 25)
 cat("DATA PORTION", DATA_SUBSET, "\n")
 print(plots)
 ```
 
+
+Analysis 2: Effect magnitude in L1 and L2
+```{r,fig.width=10,fig.height=8}
+plot_means <- function(means, tests_l1_l2, fig_title){
+      ylabel = ifelse(NORM_TIMES == TRUE, "Mean Slowdown", "Mean Slowdown (ms)")
+      p <- ggplot() +
+              theme_bw(base_size = 30) + #
+              facet_grid(fix_measure ~ word_property, scales = "free_y")  +  
+              geom_bar(stat = "identity", data = means, aes(x=English, y=mean_current, fill=English), size = 4,  alpha = 0.5) +
+              geom_errorbar(data = means, aes(x=English, ymin=lower_current, ymax=upper_current), width=0.3, size = 1) +
+              geom_text(data = tests_l1_l2, aes(x = -Inf, y = Inf, vjust=1.1, hjust=-0.05, label = stars), size = 12)  +
+              theme(plot.title = element_text(size = 50, hjust = 0.5)) + 
+              scale_fill_manual(values = colors)+
+              labs(x = "English",
+                   y = ylabel)
+      return(p)
+}
+means <- subj_slowdowns %>% group_by(lm, fix_measure, word_property, English) %>% summarize(mean_current = mean(slowdown_current),
+                                                                             upper_current = upper(slowdown_current),
+                                                                             lower_current = lower(slowdown_current))%>% ungroup 
+tests_l1_l2 <- subj_slowdowns %>% group_by(lm, fix_measure, word_property) %>% 
+                             summarise(p = t.test(slowdown_current[English=="L1"], slowdown_current[English=="L2"])$p.value) %>%
+                             mutate(stars = p2stars(p))
+tests_freq_surp <- subj_slowdowns %>% group_by(lm, fix_measure, English) %>% 
+                             summarise(p = t.test(slowdown_current[word_property=="FREQUENCY"], slowdown_current[word_property=="SURPRISAL"])$p.value) %>%
+                             mutate(stars = p2stars(p))
+p_means <- plot_means(means, tests_l1_l2, "Slowdowns")
+ggsave(file=paste("figures/mean_slowdown-", LM_DEFAULT, "-", as.symbol(NORM_TIMES),"_", as.symbol(DATA_SUBSET),".pdf", sep = ""), height = 20, width = 25)
+write.table(tests_l1_l2, file=paste("figures/tests_l1_l2-", LM_DEFAULT, "-", as.symbol(NORM_TIMES),"_", as.symbol(DATA_SUBSET),".txt", sep = ""), 
+            sep = "\t", append = FALSE, dec = ".", row.names = TRUE, col.names = TRUE)
+write.table(tests_freq_surp, file=paste("figures/tests_freq_surp-", LM_DEFAULT, "-", as.symbol(NORM_TIMES),"_", as.symbol(DATA_SUBSET),".txt", sep = ""), 
+            sep = "\t", append = FALSE, dec = ".", row.names = TRUE, col.names = TRUE)
+
+p_means
+tests_l1_l2
+tests_freq_surp
+```
 Analysis 4: Difference between frequency and suprisal effects
 ```{r, fig.width=10,fig.height=3}
 plot_slowdowns_ratio <- function(l2_slowdowns, l1_means, fig_title, coef_sig){
@@ -640,50 +678,12 @@ diff_l1_means <- slowdowns_diff_l1 %>% group_by(lm, fix_measure,word_property) %
 coefs_sig <- slowdowns_diff %>% group_by(lm, fix_measure) %>% do(coef_sig(.))
 
 plots <- plot_slowdowns_ratio(slowdowns_diff_l2, diff_l1_means, LM_DEFAULT, coefs_sig)
-ggsave(file=paste("surp_analysis_figures/FREQ-SURP-", LM_DEFAULT, "-", as.symbol(NORM_TIMES),"_", as.symbol(DATA_SUBSET),".pdf", sep = ""), height = 8, width = 28)
+ggsave(file=paste("figures/FREQ-SURP-", LM_DEFAULT, "-", as.symbol(NORM_TIMES),"_", as.symbol(DATA_SUBSET),".pdf", sep = ""), height = 8, width = 28)
 cat("DATA PORTION", DATA_SUBSET, "\n")
 print(plots)
 ```
 
-Analysis 2: Effect magnitude in L1 and L2
-```{r,fig.width=10,fig.height=8}
-plot_means <- function(means, tests_l1_l2, fig_title){
-      ylabel = ifelse(NORM_TIMES == TRUE, "Mean Slowdown", "Mean Slowdown (ms)")
-      p <- ggplot() +
-              theme_bw(base_size = 30) + #
-              facet_grid(fix_measure ~ word_property, scales = "free_y")  +  
-              geom_bar(stat = "identity", data = means, aes(x=English, y=mean_current, fill=English), size = 4,  alpha = 0.5) +
-              geom_errorbar(data = means, aes(x=English, ymin=lower_current, ymax=upper_current), width=0.3, size = 1) +
-              geom_text(data = tests_l1_l2, aes(x = -Inf, y = Inf, vjust=1.1, hjust=-0.05, label = stars), size = 12)  +
-              theme(plot.title = element_text(size = 50, hjust = 0.5)) + 
-              scale_fill_manual(values = colors)+
-              labs(x = "English",
-                   y = ylabel)
-      return(p)
-}
-means <- subj_slowdowns %>% group_by(lm, fix_measure, word_property, English) %>% summarize(mean_current = mean(slowdown_current),
-                                                                             upper_current = upper(slowdown_current),
-                                                                             lower_current = lower(slowdown_current))%>% ungroup 
-tests_l1_l2 <- subj_slowdowns %>% group_by(lm, fix_measure, word_property) %>% 
-                             summarise(p = t.test(slowdown_current[English=="L1"], slowdown_current[English=="L2"])$p.value) %>%
-                             mutate(stars = p2stars(p))
-tests_freq_surp <- subj_slowdowns %>% group_by(lm, fix_measure, English) %>% 
-                             summarise(p = t.test(slowdown_current[word_property=="FREQUENCY"], slowdown_current[word_property=="SURPRISAL"])$p.value) %>%
-                             mutate(stars = p2stars(p))
-p_means <- plot_means(means, tests_l1_l2, "Slowdowns")
-ggsave(file=paste("surp_analysis_figures/mean_slowdown-", LM_DEFAULT, "-", as.symbol(NORM_TIMES),"_", as.symbol(DATA_SUBSET),".pdf", sep = ""), height = 20, width = 25)
-write.table(tests_l1_l2, file=paste("surp_analysis_figures/tests_l1_l2-", LM_DEFAULT, "-", as.symbol(NORM_TIMES),"_", as.symbol(DATA_SUBSET),".txt", sep = ""), 
-            sep = "\t", append = FALSE, dec = ".", row.names = TRUE, col.names = TRUE)
-write.table(tests_freq_surp, file=paste("surp_analysis_figures/tests_freq_surp-", LM_DEFAULT, "-", as.symbol(NORM_TIMES),"_", as.symbol(DATA_SUBSET),".txt", sep = ""), 
-            sep = "\t", append = FALSE, dec = ".", row.names = TRUE, col.names = TRUE)
-
-p_means
-tests_l1_l2
-tests_freq_surp
-```
-
-
-Analysis 2 by L1
+SI: Analysis 2 by L1
 ```{r,fig.width=10,fig.height=8}
 plot_means2 <- function(means, tests_l1_l2, fig_title){
       langs_custom_order <- c("English", "Arabic", "Chinese", "Japanese", "Portuguese", "Spanish")
@@ -725,10 +725,10 @@ tests_freq_surp <- subj_slowdowns %>% group_by(lm, fix_measure, L1) %>%
                              summarise(p = t.test(slowdown_current[word_property=="FREQUENCY"], slowdown_current[word_property=="SURPRISAL"])$p.value) %>%
                              mutate(stars = p2stars(p))
 p_means <- plot_means2(means, tests_l1_l2, "Slowdowns")
-ggsave(file=paste("surp_analysis_figures/mean_slowdown-", LM_DEFAULT, "-", as.symbol(NORM_TIMES),"_", as.symbol(DATA_SUBSET),"_byL1.pdf", sep = ""), height = 20, width = 25)
-write.table(tests_l1_l2, file=paste("surp_analysis_figures/tests_l1_l2-", LM_DEFAULT, "-", as.symbol(NORM_TIMES),"_", as.symbol(DATA_SUBSET),"_byL1.txt", sep = ""), 
+ggsave(file=paste("figures/mean_slowdown-", LM_DEFAULT, "-", as.symbol(NORM_TIMES),"_", as.symbol(DATA_SUBSET),"_byL1.pdf", sep = ""), height = 20, width = 25)
+write.table(tests_l1_l2, file=paste("figures/tests_l1_l2-", LM_DEFAULT, "-", as.symbol(NORM_TIMES),"_", as.symbol(DATA_SUBSET),"_byL1.txt", sep = ""), 
             sep = "\t", append = FALSE, dec = ".", row.names = TRUE, col.names = TRUE)
-write.table(tests_freq_surp, file=paste("surp_analysis_figures/tests_freq_surp-", LM_DEFAULT, "-", as.symbol(NORM_TIMES),"_", as.symbol(DATA_SUBSET),"_byL1.txt", sep = ""), 
+write.table(tests_freq_surp, file=paste("figures/tests_freq_surp-", LM_DEFAULT, "-", as.symbol(NORM_TIMES),"_", as.symbol(DATA_SUBSET),"_byL1.txt", sep = ""), 
             sep = "\t", append = FALSE, dec = ".", row.names = TRUE, col.names = TRUE)
 p_means
 tests_freq_surp
@@ -755,14 +755,14 @@ report_fix <- report_fix %>%
                          WORD_ID = as.factor(paste(TRIAL, CURRENT_FIX_INTEREST_AREA_ID, sep = "_")),
                          WORD_NORM = as.factor(WORD_NORM)) %>%
                   # add L1 and proficiency information form metadata
-                  mutate(MPT = map_dbl(SUBJECT, function(x){metadata[toString(x), TEST]}),
+                  mutate(MPT = map_dbl(SUBJECT, function(x){metadata[toString(x), ENGLISH_TEST]}),
                          L1 = unlist(map(SUBJECT, function(x){metadata[toString(x),"L1"]})),
                          English = as.factor(ifelse(L1 == "English", "L1", "L2")))
 report_fix <- report_fix %>% filter(!grepl("NUM", WORD_NORM), #numbers
                                   !grepl('^[[:punct:]]|[[:punct:]]$', CURRENT_FIX_INTEREST_AREA_LABEL)) #punctuation
 ```
 
-
+SI: Other
 ```{r,fig.width=12,fig.height=9}
 mean_lmer <- function(report){
   se = as_tibble(coef(summary(lmer(CURRENT_FIX_DURATION ~ 1 + (1 |SUBJECT),
@@ -781,7 +781,7 @@ p<- ggplot(l1_means, aes(x=L1, y=Estimate, fill = L1)) +
       ylab("Mean Fixation Duration") +
       scale_x_discrete(limits=c("English", "Arabic", "Chinese", "Japanese", "Portuguese", "Spanish"))+
       theme(legend.position="none")
-ggsave(file="surp_analysis_figures/fixation_duration_by_L1.pdf", height=9,width=12, p)
+ggsave(file="figures/fixation_duration_by_L1.pdf", height=9,width=12, p)
 p
 ```
 
@@ -801,9 +801,9 @@ p <- ggplot() +
              geom_rect(aes(xmin = -Inf, xmax = Inf, ymin = L1_mean- CI, ymax = L1_mean + CI),  
                        fill = "red", alpha = 0.2) +
     ylab("Mean Fixation Duration") + xlab('MPT English Proficiency Score')+
-      scale_fill_manual(values = colors) +
+      scale_fill_manual(values = colors) 
 
-ggsave(file="surp_analysis_figures/fixation_duration_by_MPT.pdf", height=9,width=12, p)
+ggsave(file="figures/fixation_duration_by_MPT.pdf", height=9,width=12, p)
 p
 ```
 
@@ -827,5 +827,5 @@ p<- ggplot() +
                        fill = "red", alpha = 0.2) +
   annotate("text", x = -Inf, y = Inf, label = r2_label, parse = TRUE, vjust=1.5, hjust=-0.5, size = 7)
 p
-ggsave(file="surp_analysis_figures/comprehension.pdf", height=9,width=12, p)
+ggsave(file="figures/comprehension.pdf", height=9,width=12, p)
 ```
